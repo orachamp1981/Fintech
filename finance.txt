@@ -1,0 +1,1869 @@
+CREATE TABLE CHART_OF_ACCOUNT ( 
+  ACCOUNT_CODE      CHAR (19)     NOT NULL, 
+  ACCOUNT_TITLE     VARCHAR2 (70)  NOT NULL, 
+  OPENING_BALANCE   NUMBER (13,2), 
+  CURRENT_BALANCE   NUMBER (13,2), 
+  AC_TYPE           CHAR (1), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  CONSTRAINT PK_ACCOUNT_CODE
+  PRIMARY KEY ( ACCOUNT_CODE ) 
+ )
+
+CREATE OR REPLACE TRIGGER COA_Cancel
+before update or delete on CHART_OF_ACCOUNT
+REFERENCING NEW AS NEW OLD AS OLD
+For each row
+Begin
+  If :Old.Cancel_YN = 'Y' then
+      Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+  End if;
+END
+/
+CREATE OR REPLACE TRIGGER COA_LOG
+after INSERT OR DELETE OR UPDATE ON CHART_OF_ACCOUNT
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'CHART_OF_ACCOUNT';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+   if Inserting then
+     cActivity_Type := 'I';
+     vReference_No := :New.ACCOUNT_CODE;
+   elsif Updating then
+     if :New.Cancel_YN = 'Y' then
+       cActivity_Type := 'C';
+     else
+       cActivity_Type := 'U';
+     end if;
+     vReference_No := :New.ACCOUNT_CODE;
+   elsif Deleting then
+     cActivity_Type := 'D';
+     vReference_No := :OLD.ACCOUNT_CODE;
+   end if;
+   -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+End
+/
+CREATE OR REPLACE TRIGGER  COA_Mandatory
+Before Insert or Update on CHART_OF_ACCOUNT
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.ACCOUNT_TITLE  is null Or
+    :new.Cancel_YN      is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  COA_User_Date
+Before Insert or Update on CHART_OF_ACCOUNT
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If inserting then
+    :new.date_created := sysdate;
+    :new.created_by := user;
+    :new.machine_created := UserEnv('Terminal');
+ End If;
+ If updating then
+    :new.date_modified := sysdate;
+    :new.modified_by := user;
+    :new.machine_modified := UserEnv('Terminal');
+ End If;
+End
+/
+CREATE TABLE JV_HEADER ( 
+  JV_NO             NUMBER        NOT NULL, 
+  JV_NO_NEW         VARCHAR2 (12)  NOT NULL, 
+  JV_DATE           DATE          NOT NULL, 
+  JV_TYPE           CHAR (1)      NOT NULL, 
+  LOC_ID            CHAR (2)      DEFAULT 'KH' NOT NULL, 
+  DESCRIPTION       VARCHAR2 (200), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  TRIP_CODE         CHAR (5), 
+  SERIAL_NUMBER     NUMBER, 
+  ROUTE_SNO         NUMBER, 
+  CONSTRAINT UK_JV_NO_NEW_JVH UNIQUE (JV_NO_NEW) CONSTRAINT PK_JV_HEADER
+  PRIMARY KEY ( JV_NO ) 
+ )
+/
+CREATE OR REPLACE TRIGGER  JV_Header_Activity
+after Insert or Update or Delete on
+JV_Header Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+
+    If Inserting Then
+      Insert into JV_Header_Activity
+       (JV_Activity_Type,Jv_No,Jv_No_New,Jv_Date,Jv_Type,Loc_ID,Description,Cancel_YN)
+       Values
+      (l_Insert,:New.Jv_No,:New.Jv_No_New,:New.Jv_Date,:New.Jv_Type,:New.Loc_ID,:New.Description,
+       :New.Cancel_YN);
+    Elsif Updating Then
+     Insert into JV_Header_Activity
+       (JV_Activity_Type,Jv_No,Jv_No_New,Jv_Date,Jv_Type,Loc_ID,Description,Cancel_YN)
+       Values
+      (l_Update,:Old.Jv_No,:Old.Jv_No_New,:Old.Jv_Date,:Old.Jv_Type,:Old.Loc_ID,:Old.Description,
+       :Old.Cancel_YN);
+    Elsif Deleting Then
+    Insert into JV_Header_Activity
+       (JV_Activity_Type,Jv_No,Jv_No_New,Jv_Date,Jv_Type,Loc_ID,Description,Cancel_YN)
+       Values
+      (l_Delete,:Old.Jv_No,:Old.Jv_No_New,:Old.Jv_Date,:Old.Jv_Type,:Old.Loc_ID,:Old.Description,
+       :Old.Cancel_YN);
+    End if;
+ Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE OR REPLACE TRIGGER  JV_HEADER_Cancel
+before update or delete on JV_HEADER
+for each row
+Begin
+    If :Old.Cancel_YN = 'Y' then
+        Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  JV_HEADER_Genrate
+before Insert on JV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       NUMBER;
+Begin
+    Select  nvl(max(JV_NO),0)+1
+    Into :NEW.JV_NO
+    from JV_HEADER;
+End
+/
+CREATE OR REPLACE TRIGGER  JV_HEADER_Genrate_N
+before Insert on JV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       Varchar2(12);
+Begin
+    Select  ltrim(to_char(nvl(max(substr(JV_NO_NEW ,9,4)),0)+1,'0000'))
+    Into temp_no
+    from JV_HEADER
+    Where substr(JV_NO_NEW, 1, 8) = TO_CHAR(:NEW.JV_DATE,'YYYYMMDD');
+    :New.JV_NO_NEW                := TO_CHAR(:NEW.JV_DATE,'YYYYMMDD')||Temp_no;
+End;
+/
+
+CREATE OR REPLACE TRIGGER  JV_HEADER_LOG
+after INSERT OR DELETE OR UPDATE ON JV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'JV_HEADER';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+  if Inserting then
+    cActivity_Type := 'I';
+    vReference_No := :New.JV_NO;
+  elsif Updating then
+    if :New.Cancel_YN = 'Y' then
+      cActivity_Type := 'C';
+    else
+      cActivity_Type := 'U';
+    end if;
+    vReference_No := :New.JV_NO;
+  elsif Deleting then
+    cActivity_Type := 'D';
+    vReference_No := :OLD.JV_NO;
+  end if;
+    -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+End
+/
+CREATE OR REPLACE TRIGGER  JV_HEADER_Mandatory
+Before Insert or Update on JV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.JV_NO_NEW is null Or
+    :new.JV_DATE   is null Or
+    :new.Cancel_YN is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  JV_HEADER_User_Date
+Before Insert or Update on JV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+  If Inserting then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_created, :New.created_by, :New.machine_created
+    from     Dual;
+  End If;
+  If Updating then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_modified, :New.modified_by, :New.machine_modified
+    from Dual;
+  End If;
+End
+/
+CREATE OR REPLACE TRIGGER  JV_HEADER_VALIDATION
+BEFORE INSERT OR UPDATE ON JV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.JV_NO_NEW <> :OLD.JV_NO_NEW OR
+     :NEW.JV_DATE <> :OLD.JV_DATE OR
+     :NEW.JV_TYPE <> :OLD.JV_TYPE OR
+     :NEW.LOC_ID <> :OLD.LOC_ID THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE TABLE JV_DETAILS ( 
+  SNO               NUMBER        NOT NULL, 
+  JV_NO             NUMBER        NOT NULL, 
+  JV_NO_NEW         VARCHAR2 (12)  NOT NULL, 
+  JV_DATE           DATE          NOT NULL, 
+  JV_TYPE           CHAR (1)      NOT NULL, 
+  LOC_ID            CHAR (2)      DEFAULT 'KH' NOT NULL, 
+  ACCOUNT_CODE      CHAR (19)     NOT NULL, 
+  DEBIT_AMOUNT      NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  CREDIT_AMOUNT     NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  REF_DOC_NO        VARCHAR2 (12), 
+  DESCRIPTION       VARCHAR2 (200), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  REF_DOC_TYPE      CHAR (2), 
+  TRIP_CODE         CHAR (5), 
+  SERIAL_NUMBER     NUMBER, 
+  ROUTE_SNO         NUMBER, 
+  CONSTRAINT PK_JV_DETAILS   PRIMARY KEY ( SNO, JV_NO ) 
+ )
+/
+ALTER TABLE JV_DETAILS ADD  CONSTRAINT FK_ACCOUNT_CODE_JVD
+ FOREIGN KEY (ACCOUNT_CODE)   REFERENCES CHART_OF_ACCOUNT (ACCOUNT_CODE)
+/
+ALTER TABLE JV_DETAILS ADD  CONSTRAINT FK_JV_NO_JVD
+ FOREIGN KEY (JV_NO) REFERENCES JV_HEADER (JV_NO)
+/
+ALTER TABLE JV_DETAILS ADD  CONSTRAINT FK_JV_NO_NEW_JVD
+ FOREIGN KEY (JV_NO_NEW) REFERENCES JV_HEADER (JV_NO_NEW) 
+/
+CREATE OR REPLACE TRIGGER  JV_DETAILS_Cancel
+before update or delete on JV_DETAILS
+for each row
+Begin
+    If :Old.Cancel_YN = 'Y' then
+        Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  JV_DETAILS_FTABLES
+AFTER INSERT OR DELETE OR UPDATE ON JV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+Begin
+    If Inserting or Updating Then
+      Delete from Finance_Tables
+      where V_No    = :Old.JV_No
+      and V_NO_NEW  = :Old.JV_NO_NEW
+      and V_DATE    = :Old.JV_DATE
+      and V_SNO     = :old.SNO
+      and rtrim(Table_Flag) = 'JV'||:OLD.JV_TYPE ;
+        Insert into Finance_Tables Values (:New.JV_No,
+                                           :New.JV_NO_NEW,
+                                           :New.SNO,
+                                           :New.JV_DATE,
+                                           :New.Account_Code,
+                                           :New.DEBIT_AMOUNT,
+                                           :New.CREDIT_Amount,
+                                           'JV'||:NEW.JV_TYPE,
+                                           :New.REF_DOC_NO,
+                                           :New.DESCRIPTION,
+                                           :New.Cancel_YN,
+                                           :New.Created_By,
+                                           :New.Date_Created,
+                                           :New.Modified_By,
+                                           :New.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+        :NEW.ROUTE_SNO);
+    End If;
+    If Deleting Then
+      Delete from Finance_Tables
+      where V_No    = :Old.JV_No
+      and V_NO_NEW  = :Old.JV_NO_NEW
+      and V_DATE  = :Old.JV_DATE
+      and V_SNO   = :old.SNO
+      And rtrim(Table_Flag) = 'JV'||:OLD.JV_TYPE  ;
+    end if;
+END
+/
+CREATE OR REPLACE TRIGGER  JV_DETAILS_Genrate
+before Insert on JV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       Varchar2(15);
+    Serial_no     Number;
+Begin
+    Select  nvl(max(SNO),0)+1
+    Into Serial_no
+    from JV_DETAILS
+    Where JV_NO = :New.JV_NO;
+    :New.SNO     := Serial_no;
+End
+/
+CREATE OR REPLACE TRIGGER  JV_DETAILS_LOG
+after INSERT OR DELETE OR UPDATE ON JV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'JV_DETAILS';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+  if Inserting then
+    cActivity_Type := 'I';
+    vReference_No := :New.SNO;
+  elsif Updating then
+    if :New.Cancel_YN = 'Y' then
+      cActivity_Type := 'C';
+    else
+      cActivity_Type := 'U';
+    end if;
+    vReference_No := :New.SNO;
+  elsif Deleting then
+    cActivity_Type := 'D';
+    vReference_No := :OLD.SNO;
+  end if;
+    -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+End;
+/
+
+CREATE OR REPLACE TRIGGER  JV_DETAILS_Mandatory
+Before Insert or Update on JV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.JV_DATE      is null Or
+    :new.JV_NO        is null Or
+    :new.JV_NO_NEW    is null Or
+    :new.JV_TYPE      is null Or
+    :new.ACCOUNT_CODE is null Or
+    :new.Cancel_YN    is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  JV_DETAILS_User_Date
+Before Insert or Update on JV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+  If Inserting then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_created, :New.created_by, :New.machine_created
+    from     Dual;
+  End If;
+  If Updating then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_modified, :New.modified_by, :New.machine_modified
+    from Dual;
+  End If;
+End
+/
+CREATE OR REPLACE TRIGGER  JV_Detail_Activity
+after Insert or Update or Delete on
+JV_Details Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+    If Inserting Then
+     Insert into JV_Details_Activity
+       (JV_Activity_Type,SNO,Jv_No,Jv_No_New,Jv_Date,Jv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN)
+        Values
+        (l_Insert,:New.SNO,:New.Jv_No,:New.Jv_No_New,:New.Jv_Date,:New.Jv_Type,:New.Loc_ID,
+         :New.Account_Code,:New.Debit_Amount,:NEw.Credit_Amount,:New.Ref_Doc_No,
+         :New.Description,:New.Cancel_YN);
+     Elsif Updating Then
+      Insert into JV_Details_Activity
+       (JV_Activity_Type,SNO,Jv_No,Jv_No_New,Jv_Date,Jv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN)
+        Values
+        (l_Update,:Old.SNO,:Old.Jv_No,:Old.Jv_No_New,:Old.Jv_Date,:Old.Jv_Type,:Old.Loc_ID,
+         :Old.Account_Code,:Old.Debit_Amount,:Old.Credit_Amount,:Old.Ref_Doc_No,
+         :Old.Description,:Old.Cancel_YN);
+     Elsif Deleting Then
+      Insert into JV_Details_Activity
+       (JV_Activity_Type,SNO,Jv_No,Jv_No_New,Jv_Date,Jv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN)
+        Values
+        (l_Delete,:Old.SNO,:Old.Jv_No,:Old.Jv_No_New,:Old.Jv_Date,:Old.Jv_Type,:Old.Loc_ID,
+         :Old.Account_Code,:Old.Debit_Amount,:Old.Credit_Amount,:Old.Ref_Doc_No,
+         :Old.Description,:Old.Cancel_YN);
+    End if;
+Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE OR REPLACE TRIGGER  JV_DETAIL_VALIDATION
+BEFORE INSERT OR UPDATE ON JV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.JV_NO_NEW <> :OLD.JV_NO_NEW OR
+     :NEW.JV_DATE <> :OLD.JV_DATE OR
+     :NEW.JV_TYPE <> :OLD.JV_TYPE OR
+     :NEW.LOC_ID <> :OLD.LOC_ID OR
+     :NEW.ACCOUNT_CODE <> :OLD.ACCOUNT_CODE OR
+     :NEW.DEBIT_AMOUNT <> :OLD.DEBIT_AMOUNT OR
+     :NEW.CREDIT_AMOUNT <> :OLD.CREDIT_AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE TABLE RV_HEADER ( 
+  RV_NO             NUMBER        NOT NULL, 
+  RV_NO_NEW         VARCHAR2 (12)  NOT NULL, 
+  RV_DATE           DATE          NOT NULL, 
+  RV_TYPE           CHAR (1)      NOT NULL, 
+  BANK_CASH         CHAR (1)      NOT NULL, 
+  LOC_ID            CHAR (2)      DEFAULT 'KH' NOT NULL, 
+  ACCOUNT_CODE      CHAR (19)     NOT NULL, 
+  CHECK_NO          VARCHAR2 (20), 
+  CHECK_DATE        DATE, 
+  AMOUNT            NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  DESCRIPTION       VARCHAR2 (500), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  BANK_NAME         VARCHAR2 (50), 
+  BANK_REMARKS      VARCHAR2 (100), 
+  TRIP_CODE         CHAR (5), 
+  SERIAL_NUMBER     NUMBER, 
+  ROUTE_SNO         NUMBER, 
+  CONSTRAINT UK_RV_NO_NEW_RVH UNIQUE (RV_NO_NEW), 
+  CONSTRAINT PK_RV_HEADER PRIMARY KEY ( RV_NO ) 
+  )
+/
+ALTER TABLE RV_HEADER ADD  CONSTRAINT FK_ACCOUNT_CODE_RVH
+FOREIGN KEY (ACCOUNT_CODE) REFERENCES CHART_OF_ACCOUNT (ACCOUNT_CODE)
+/
+CREATE OR REPLACE TRIGGER  RV_Header_Activity
+after Insert or Update or Delete on
+RV_Header Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+
+    If Inserting Then
+      Insert into RV_Header_Activity
+      (RV_Activity_Type,Rv_No,Rv_No_New,Rv_Date,Rv_Type,Bank_Cash,Loc_ID,Account_Code,
+       Cheque_No,Cheque_Date,Amount,Description,Cancel_YN)
+       Values
+      (l_Insert,:New.RV_No,:New.Rv_No_New,:New.Rv_Date,:New.Rv_Type,:New.Bank_Cash,:New.Loc_ID,
+       :New.Account_Code,:New.Check_No,:New.Check_Date,:New.Amount,:New.Description,:New.Cancel_YN);
+    Elsif Updating Then
+      Insert into RV_Header_Activity
+      (RV_Activity_Type,Rv_No,Rv_No_New,Rv_Date,Rv_Type,Bank_Cash,Loc_ID,Account_Code,
+       Cheque_No,Cheque_Date,Amount,Description,Cancel_YN)
+       Values
+      (l_Update,:Old.Rv_No,:Old.Rv_No_New,:Old.Rv_Date,:Old.Rv_Type,:Old.Bank_Cash,:Old.Loc_ID,
+       :Old.Account_Code,:Old.Check_No,:Old.Check_Date,:Old.Amount,:Old.Description,:Old.Cancel_YN);
+    Elsif Deleting Then
+      Insert into RV_Header_Activity
+      (RV_Activity_Type,Rv_No,Rv_No_New,Rv_Date,Rv_Type,Bank_Cash,Loc_ID,Account_Code,
+       Cheque_No,Cheque_Date,Amount,Description,Cancel_YN)
+       Values
+      (l_Delete,:Old.Rv_No,:Old.Rv_No_New,:Old.Rv_Date,:Old.Rv_Type,:Old.Bank_Cash,:Old.Loc_ID,
+       :Old.Account_Code,:Old.Check_No,:Old.Check_Date,:Old.Amount,:Old.Description,:Old.Cancel_YN);
+    End if;
+ Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_Cancel
+before update on RV_HEADER
+for each row
+Begin
+    If :Old.Cancel_YN = 'Y' then
+        Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_FTABLES
+AFTER INSERT OR DELETE OR UPDATE ON RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+Begin
+    If Inserting or Updating Then
+           delete from FINANCE_TABLES
+           where V_No   =  :Old.RV_No
+           AND V_No_NEW =  :Old.RV_No_NEW
+           And V_Date   =  :Old.RV_Date
+           and V_SNO    = 0
+           and rtrim(Table_Flag) = 'RVH' ;
+        Insert into Finance_Tables Values (:New.RV_No,
+                                           :New.RV_No_NEW,
+                                            0,
+                                           :New.RV_Date,
+                                           :New.Account_Code,
+                                            nvl((:New.Amount),0),
+                                            NULL,
+                                           'RVH',
+                                            NULL,
+                                           :New.DESCRIPTION,
+                                           :New.Cancel_YN,
+                                           :New.Created_By,
+                                           :New.Date_Created,
+                                           :New.Modified_By,
+                                           :New.Date_Modified,
+         :NEW.TRIP_CODE,
+         :NEW.SERIAL_NUMBER,
+     :NEW.ROUTE_SNO);
+    End If;
+    If Deleting Then
+      Delete from Finance_Tables
+      where V_No   =  :Old.RV_No
+      AND V_No_NEW =  :Old.RV_No_NEW
+      And V_Date   =  :Old.RV_Date
+      and V_SNO    = 0
+      And rtrim(Table_Flag) = 'RVH'  ;
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_Genrate
+before Insert on RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       NUMBER;
+Begin
+    Select  nvl(max(RV_NO),0)+1
+    Into :New.RV_NO
+    from RV_HEADER;
+End
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_Genrate_N
+before Insert on RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       Varchar2(12);
+Begin
+    Select  ltrim(to_char(nvl(max(substr(RV_NO_NEW ,9,4)),0)+1,'0000'))
+    Into temp_no
+    from RV_HEADER
+    Where substr(RV_NO_NEW, 1, 8) = TO_CHAR(:NEW.RV_DATE,'YYYYMMDD');
+    :New.RV_NO_NEW                := TO_CHAR(:NEW.RV_DATE,'YYYYMMDD')||Temp_no;
+End
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_LOG
+after INSERT OR DELETE OR UPDATE ON RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'RV_HEADER';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+  if Inserting then
+    cActivity_Type := 'I';
+    vReference_No := :New.RV_NO;
+  elsif Updating then
+    if :New.Cancel_YN = 'Y' then
+      cActivity_Type := 'C';
+    else
+      cActivity_Type := 'U';
+    end if;
+    vReference_No := :New.RV_NO;
+  elsif Deleting then
+    cActivity_Type := 'D';
+    vReference_No := :OLD.RV_NO;
+  end if;
+    -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+End
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_Mandatory
+Before Insert or Update on RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.RV_DATE is null Or
+    :new.RV_TYPE is null Or
+    :new.ACCOUNT_CODE is null Or
+    :new.Cancel_YN is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_User_Date
+Before Insert or Update on RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+  If Inserting then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_created, :New.created_by, :New.machine_created
+    from     Dual;
+  End If;
+  If Updating then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_modified, :New.modified_by, :New.machine_modified
+    from Dual;
+  End If;
+End
+/
+CREATE OR REPLACE TRIGGER  RV_HEADER_VALIDATION
+BEFORE INSERT OR UPDATE ON RV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.RV_NO_NEW <> :OLD.RV_NO_NEW OR
+     :NEW.RV_DATE <> :OLD.RV_DATE OR
+     :NEW.RV_TYPE <> :OLD.RV_TYPE OR
+     :NEW.BANK_CASH <> :OLD.BANK_CASH OR
+     :NEW.LOC_ID <> :OLD.LOC_ID OR
+     :NEW.ACCOUNT_CODE <> :OLD.ACCOUNT_CODE OR
+     :NEW.AMOUNT <> :OLD.AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END;
+/
+CREATE TABLE RV_DETAILS ( 
+  SNO               NUMBER        NOT NULL, 
+  RV_NO             NUMBER        NOT NULL, 
+  RV_NO_NEW         VARCHAR2 (12)  NOT NULL, 
+  RV_DATE           DATE          NOT NULL, 
+  RV_TYPE           CHAR (1)      NOT NULL, 
+  LOC_ID            CHAR (2)      DEFAULT 'KH' NOT NULL, 
+  ACCOUNT_CODE      CHAR (19)     NOT NULL, 
+  DEBIT_AMOUNT      NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  CREDIT_AMOUNT     NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  REF_DOC_NO        VARCHAR2 (14), 
+  DESCRIPTION       VARCHAR2 (200), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  REF_DOC_TYPE      CHAR (1), 
+  TRIP_CODE         CHAR (5), 
+  SERIAL_NUMBER     NUMBER, 
+  ROUTE_SNO         NUMBER, 
+  CONSTRAINT PK_RV_DETAILS   PRIMARY KEY ( SNO, RV_NO ) 
+)
+/
+ALTER TABLE RV_DETAILS ADD  CONSTRAINT FK_ACCOUNT_CODE_RVD
+FOREIGN KEY (ACCOUNT_CODE) REFERENCES CHART_OF_ACCOUNT (ACCOUNT_CODE) 
+/
+ALTER TABLE RV_DETAILS ADD  CONSTRAINT FK_RV_NO_NEW_RVD
+FOREIGN KEY (RV_NO_NEW) REFERENCES RV_HEADER (RV_NO_NEW)
+/
+ALTER TABLE RV_DETAILS ADD  CONSTRAINT FK_RV_NO_RVD
+FOREIGN KEY (RV_NO) REFERENCES RV_HEADER (RV_NO)
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_Cancel
+before update on RV_DETAILS
+for each row
+Begin
+    If :Old.Cancel_YN = 'Y' then
+        Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_FTABLES
+AFTER INSERT OR DELETE OR UPDATE ON RV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+    pREMARKS VARCHAR2(200);
+BEGIN
+    IF INSERTING OR UPDATING THEN
+       DELETE FROM FINANCE_TABLES
+      WHERE V_No = :OLD.RV_No
+      AND V_No_NEW = :OLD.RV_No_NEW
+      AND V_DATE = :OLD.RV_DATE
+      AND V_SNO  = :OLD.SNO
+      AND RTRIM(Table_Flag) = 'RVD' ;
+        INSERT INTO FINANCE_TABLES VALUES (:NEW.RV_No,
+                                           :NEW.RV_No_NEW,
+                                           :NEW.SNO,
+                                           :NEW.RV_DATE,
+                                           :NEW.Account_Code,
+                                           :NEW.DEBIT_AMOUNT,
+                                           :NEW.CREDIT_Amount,
+                                           'RVD',
+                                           :NEW.REF_DOC_NO,
+                                           :NEW.DESCRIPTION,
+                                           :NEW.Cancel_YN,
+                                           :NEW.Created_By,
+                                           :NEW.Date_Created,
+                                           :NEW.Modified_By,
+                                           :NEW.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+:NEW.ROUTE_SNO
+);
+    END IF;
+    IF DELETING THEN
+      DELETE FROM FINANCE_TABLES
+      WHERE V_No  = :OLD.RV_No
+      AND V_No_NEW = :OLD.RV_No_NEW
+      AND V_DATE  = :OLD.RV_DATE
+      AND V_SNO   = :OLD.SNO
+      AND RTRIM(Table_Flag) = 'RVD';
+    END IF;
+END
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_Genrate
+before Insert on RV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       Varchar2(15);
+    Serial_no     Number;
+Begin
+    Select  nvl(max(SNO),0)+1
+    Into Serial_no
+    from RV_DETAILS
+    Where RV_NO = :New.RV_NO;
+    :New.SNO     := Serial_no;
+End
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_LOG
+after INSERT OR DELETE OR UPDATE ON RV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'RV_DETAILS';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+  if Inserting then
+    cActivity_Type := 'I';
+    vReference_No := :New.SNO;
+  elsif Updating then
+    if :New.Cancel_YN = 'Y' then
+      cActivity_Type := 'C';
+    else
+      cActivity_Type := 'U';
+    end if;
+    vReference_No := :New.SNO;
+  elsif Deleting then
+    cActivity_Type := 'D';
+    vReference_No := :OLD.SNO;
+  end if;
+    -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+end;
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_Mandatory
+Before Insert or Update on RV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.RV_NO        is null Or
+    :new.RV_NO_NEW    is null Or
+    :new.RV_DATE      is null Or
+    :new.RV_TYPE      is null Or
+    :new.ACCOUNT_CODE is null Or
+    :new.Cancel_YN    is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_User_Date
+Before Insert or Update on RV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+  If Inserting then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_created, :New.created_by, :New.machine_created
+    from     Dual;
+  End If;
+  If Updating then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_modified, :New.modified_by, :New.machine_modified
+    from Dual;
+  End If;
+End
+/
+CREATE OR REPLACE TRIGGER  RV_DETAILS_VALIDATION
+BEFORE INSERT OR UPDATE ON RV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('TEST%')THEN
+     IF :NEW.SNO <> :OLD.SNO OR
+     :NEW.RV_NO_NEW <> :OLD.RV_NO_NEW OR
+     :NEW.RV_DATE <> :OLD.RV_DATE OR
+     :NEW.RV_TYPE <> :OLD.RV_TYPE OR
+     :NEW.LOC_ID <> :OLD.LOC_ID OR
+     :NEW.ACCOUNT_CODE <> :OLD.ACCOUNT_CODE OR
+     :NEW.DEBIT_AMOUNT <> :OLD.DEBIT_AMOUNT OR
+     :NEW.CREDIT_AMOUNT <> :OLD.CREDIT_AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE OR REPLACE TRIGGER  RV_Detail_Activity
+after Insert or Update or Delete on
+RV_Details Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+    If Inserting Then
+     Insert into RV_Details_Activity
+       (RV_Activity_Type,SNO,RV_No,Rv_No_New,Rv_Date,Rv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN)
+        Values
+        (l_Insert,:New.SNO,:New.Rv_No,:New.Rv_No_New,:New.Rv_Date,:New.Rv_Type,:New.Loc_ID,
+         :New.Account_Code,:New.Debit_Amount,:NEw.Credit_Amount,:New.Ref_Doc_No,
+         :New.Description,:New.Cancel_YN);
+     Elsif Updating Then
+     Insert into RV_Details_Activity
+       (RV_Activity_Type,SNO,RV_No,Rv_No_New,Rv_Date,Rv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN)
+        Values
+        (l_Update,:Old.SNO,:Old.Rv_No,:Old.Rv_No_New,:Old.Rv_Date,:Old.Rv_Type,:Old.Loc_ID,
+         :Old.Account_Code,:Old.Debit_Amount,:Old.Credit_Amount,:Old.Ref_Doc_No,
+         :Old.Description,:Old.Cancel_YN);
+     Elsif Deleting Then
+     Insert into RV_Details_Activity
+       (RV_Activity_Type,SNO,RV_No,Rv_No_New,Rv_Date,Rv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN)
+        Values
+        (l_Delete,:Old.SNO,:Old.Rv_No,:Old.Rv_No_New,:Old.Rv_Date,:Old.Rv_Type,:Old.Loc_ID,
+         :Old.Account_Code,:Old.Debit_Amount,:Old.Credit_Amount,:Old.Ref_Doc_No,
+         :Old.Description,:Old.Cancel_YN);
+    End if;
+Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End;
+/
+CREATE TABLE VENDOR_BILL_HEADER ( 
+  BILL_ID                NUMBER        NOT NULL, 
+  BILL_DATE              DATE          NOT NULL, 
+  BILL_NO                CHAR (12)     NOT NULL, 
+  LOCATION_ID            CHAR (2)      NOT NULL, 
+  BILL_TYPE              CHAR (1)      NOT NULL, 
+  SUPPLIER_COA           CHAR (19)     NOT NULL, 
+  AMOUNT                 NUMBER        NOT NULL, 
+  REMARKS                VARCHAR2 (100), 
+  CANCEL_YN              CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_ON             VARCHAR2 (35)  DEFAULT USER NOT NULL, 
+  DATE_CREATED           DATE          DEFAULT SYSDATE NOT NULL, 
+  MODIFIED_ON            VARCHAR2 (35), 
+  DATE_MODIFIED          DATE, 
+  MACHINE_CREATED_NAME   VARCHAR2 (35)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MACHINE_MODIFIED_NAME  VARCHAR2 (35), 
+  TAX_COA                CHAR (19), 
+  TAX_AMOUNT             NUMBER, 
+  TRIP_CODE              CHAR (5), 
+  SERIAL_NUMBER          NUMBER, 
+  ROUTE_SNO              NUMBER, 
+  CONSTRAINT UK_VB_NO UNIQUE (BILL_NO),
+  CONSTRAINT PK_VB_ID PRIMARY KEY ( BILL_ID ) 
+ )
+/
+ALTER TABLE VENDOR_BILL_HEADER ADD  CONSTRAINT FK_VB_LOC_ID
+FOREIGN KEY (LOCATION_ID) REFERENCES SYSTEM_LOCATION (LOC_ID)
+/
+ALTER TABLE VENDOR_BILL_HEADER ADD  CONSTRAINT FK_VB_SUP_CODE
+FOREIGN KEY (SUPPLIER_COA) REFERENCES CHART_OF_ACCOUNT (ACCOUNT_CODE)
+/
+CREATE OR REPLACE TRIGGER  Bill_Header_Auto_ID
+Before Insert On Vendor_Bill_Header Referencing New As New
+Old As Old For Each Row
+WHEN (new.Bill_ID is null)
+Begin
+     :New.Bill_ID := LIB.Get_New_ID('Vendor_Bill_Header', 'Bill_ID');
+End
+/
+CREATE OR REPLACE TRIGGER  Bill_Header_Auto_No
+Before Insert On Vendor_Bill_Header Referencing New As New
+Old As Old For Each Row
+Declare
+   Temp_No varchar2(12);
+Begin
+    SELECT  LTRIM(TO_CHAR(NVL(MAX(SUBSTR(Bill_NO,9,4)),0)+1,'0000'))
+    INTO temp_no
+    From Vendor_Bill_Header
+    Where SUBSTR(Bill_NO, 1, 8) = TO_CHAR(:NEW.Bill_Date,'YYYYMMDD');
+    :NEW.Bill_NO := TO_CHAR(:NEW.Bill_Date,'YYYYMMDD')||Temp_no;
+END;
+/
+
+CREATE OR REPLACE TRIGGER  Bill_Header_Cancel
+Before Update On Vendor_Bill_Header
+For Each Row
+Declare
+    Field_Required Exception;
+BEGIN
+  IF :OLD.Cancel_YN = 'Y' THEN
+     Raise Field_Required;
+  End if;
+Exception
+     When Field_Required Then
+      RAISE_APPLICATION_ERROR (-20999,'Cancel Record not Updated');
+     When others then
+          Raise_application_error (-20999, 'Exception: ' || sqlerrm);
+END
+/
+CREATE OR REPLACE TRIGGER  Bill_Header_Log Before Insert
+or Update or Delete On Vendor_Bill_Header Referencing New As New
+Old As Old For Each Row
+Declare
+  vActivity_On VARCHAR2(30) := 'Vendor_Bill_Header';
+  cActivity_Type CHAR(1);
+  vReference_No VARCHAR2(19);
+BEGIN
+  IF INSERTING THEN
+    cActivity_Type := 'I';
+    vReference_No  := :NEW.Bill_No;
+ ELSIF UPDATING THEN
+    IF :NEW.Cancel_YN = 'Y' THEN
+      cActivity_Type := 'C';
+    ELSE
+      cActivity_Type := 'U';
+    END IF;
+    vReference_No := :NEW.Bill_No;
+  ELSIF DELETING THEN
+    cActivity_Type := 'D';
+    vReference_No := :OLD.Bill_No;
+  END IF;
+  -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+END
+/
+CREATE OR REPLACE TRIGGER  Bill_Header_Mandatory Before Insert
+or Update On Vendor_Bill_Header Referencing New As New
+Old As Old For Each Row
+Declare
+    Field_Required Exception;
+Begin
+     If :New.Location_ID      is Null or
+        :New.Bill_No          is Null or
+        :New.Bill_Date        is Null or
+        :New.Bill_Type        is Null or
+        :New.Supplier_Coa     is Null or
+        :New.Amount           is Null Then
+        Raise Field_Required;
+     End if;
+Exception
+     When Field_Required Then
+          Raise_Application_Error(-20999,'Mandatory Information Must Be Provided.....');
+     When others then
+          Raise_application_error (-20999, 'Exception: ' || sqlerrm);
+End
+/
+CREATE OR REPLACE TRIGGER  Bill_Header_MD_Date Before
+Update On Vendor_Bill_Header Referencing New As New
+Old As Old For Each Row
+Begin
+      :New.Date_Modified:=Sysdate;
+      :New.Modified_On  :=User;
+      :New.Machine_Modified_Name := UserEnv('Terminal');
+End
+/
+CREATE OR REPLACE TRIGGER  VB_Header_Activity
+after Insert or Update or Delete on
+Vendor_Bill_Header Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+    If Inserting Then
+      Insert into VB_Header_Activity
+      (VB_Activity_Type,Bill_ID,Bill_No,Bill_Date,Location_ID,Bill_Type,Supplier_Coa,Account_Code,
+       Amount,Remarks,Cancel_YN,Tax_Coa,Tax_Amount)
+       Values
+      (l_Insert,:New.Bill_ID,:New.Bill_No,:New.Bill_Date,:New.Location_ID,:New.Bill_Type,:New.Supplier_coa,
+       null,:New.Amount,:New.Remarks,:New.Cancel_YN,:New.Tax_Coa,:New.Tax_Amount);
+    Elsif Updating Then
+      Insert into VB_Header_Activity
+      (VB_Activity_Type,Bill_ID,Bill_No,Bill_Date,Location_ID,Bill_Type,Supplier_Coa,Account_Code,
+       Amount,Remarks,Cancel_YN,Tax_Coa,Tax_Amount)
+       Values
+      (l_Update,:Old.Bill_ID,:Old.Bill_No,:Old.Bill_Date,:Old.Location_ID,:Old.Bill_Type,:Old.Supplier_coa,
+       null,:Old.Amount,:Old.Remarks,:Old.Cancel_YN,:Old.Tax_Coa,:Old.Tax_Amount);
+    Elsif Deleting Then
+      Insert into VB_Header_Activity
+      (VB_Activity_Type,Bill_ID,Bill_No,Bill_Date,Location_ID,Bill_Type,Supplier_Coa,Account_Code,
+       Amount,Remarks,Cancel_YN,Tax_Coa,Tax_Amount)
+       Values
+      (l_Delete,:Old.Bill_ID,:Old.Bill_No,:Old.Bill_Date,:Old.Location_ID,:Old.Bill_Type,:Old.Supplier_coa,
+       null,:Old.Amount,:Old.Remarks,:Old.Cancel_YN,:Old.Tax_Coa,:Old.Tax_Amount);
+    End if;
+ Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE OR REPLACE TRIGGER VB_HEADER_FTABLES
+AFTER INSERT OR DELETE OR UPDATE ON VENDOR_BILL_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+   l_SNO NUMBER;
+BEGIN
+    IF INSERTING OR UPDATING THEN
+     DELETE FROM FINANCE_TABLES
+      WHERE V_No    = :OLD.BILL_ID
+      AND V_NO_NEW  = :OLD.BILL_NO
+      AND V_DATE    = :OLD.BILL_DATE
+      AND RTRIM(Table_Flag) = 'VB';
+        INSERT INTO FINANCE_TABLES VALUES (:NEW.BILL_ID,
+                                           :NEW.BILL_NO,
+                                           1,
+                                           :NEW.BILL_DATE,
+                                           :NEW.Account_Code,
+                                           NVL(:NEW.AMOUNT-:NEW.TAX_AMOUNT,0),
+                                           0,
+                                           'VB',
+                                           NULL,
+                                           :NEW.REMARKS,
+                                           :NEW.Cancel_YN,
+                                           :NEW.Created_on,
+                                           :NEW.Date_Created,
+                                           :NEW.Modified_on,
+                                           :NEW.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER);
+       INSERT INTO FINANCE_TABLES VALUES (:NEW.BILL_ID,
+                                          :NEW.BILL_NO,
+                                           1,
+                                           :NEW.BILL_DATE,
+                                           :NEW.SUPPLIER_COA,
+                                           0,
+                                           :NEW.AMOUNT,
+                                           'VB',
+                                           NULL,
+                                           :NEW.REMARKS,
+                                           :NEW.Cancel_YN,
+                                           :NEW.Created_on,
+                                           :NEW.Date_Created,
+                                           :NEW.Modified_ON,
+                                           :NEW.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+        :NEW.ROUTE_SNO);
+     IF NVL(:NEW.TAX_AMOUNT,0) > 0 THEN
+       INSERT INTO FINANCE_TABLES VALUES (:NEW.BILL_ID,
+                                          :NEW.BILL_NO,
+                                           2,
+                                           :NEW.BILL_DATE,
+                                           :NEW.TAX_COA,
+                                           :NEW.TAX_AMOUNT,
+                                           0,
+                                           'VB',
+                                           NULL,
+                                           :NEW.REMARKS,
+                                           :NEW.Cancel_YN,
+                                           :NEW.Created_on,
+                                           :NEW.Date_Created,
+                                           :NEW.Modified_on,
+                                           :NEW.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+        :NEW.ROUTE_SNO);
+    END IF;
+ END IF;
+    IF DELETING THEN
+      DELETE FROM FINANCE_TABLES
+      WHERE V_No    = :OLD.BILL_ID
+      AND V_NO_NEW  = :OLD.BILL_NO
+      AND V_DATE    = :OLD.BILL_DATE
+      AND RTRIM(Table_Flag) = 'VB';
+    END IF;
+END
+/
+CREATE OR REPLACE TRIGGER  VEN_BILL_HEA_VALIDATION
+BEFORE INSERT OR UPDATE ON VENDOR_BILL_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.BILL_DATE <> :OLD.BILL_DATE OR
+     :NEW.BILL_NO <> :OLD.BILL_NO OR
+     :NEW.LOCATION_ID <> :OLD.LOCATION_ID OR
+     :NEW.BILL_TYPE <> :OLD.BILL_TYPE OR
+     :NEW.SUPPLIER_COA <> :OLD.SUPPLIER_COA OR
+--     :NEW.ACCOUNT_CODE <> :OLD.ACCOUNT_CODE OR
+     :NEW.AMOUNT <> :OLD.AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE TABLE VENDOR_BILL_DETAIL ( 
+  BILL_ID                NUMBER        NOT NULL, 
+  BILL_SNO               NUMBER        NOT NULL, 
+  BILL_NO                CHAR (12)     NOT NULL, 
+  DOCUMENT_NO            CHAR (12), 
+  ACCOUNT_CODE           CHAR (19)     NOT NULL, 
+  AMOUNT                 NUMBER        NOT NULL, 
+  CANCEL_YN              CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_ON             VARCHAR2 (35)  DEFAULT USER NOT NULL, 
+  DATE_CREATED           DATE          DEFAULT SYSDATE NOT NULL, 
+  MODIFIED_ON            VARCHAR2 (35), 
+  DATE_MODIFIED          DATE, 
+  MACHINE_CREATED_NAME   VARCHAR2 (35)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MACHINE_MODIFIED_NAME  VARCHAR2 (35), 
+  BILL_INVOICE_NO        VARCHAR2 (20), 
+  BILL_INVOICE_DATE      DATE, 
+  TRIP_CODE              CHAR (5), 
+  SERIAL_NUMBER          NUMBER, 
+  ROUTE_SNO              NUMBER, 
+  CONSTRAINT PK_VB_DETAIL_ID PRIMARY KEY ( BILL_ID, BILL_SNO ) 
+  )
+/
+
+ALTER TABLE VENDOR_BILL_DETAIL ADD  CONSTRAINT FK_VB_DT_ID FOREIGN KEY (BILL_ID) REFERENCES VENDOR_BILL_HEADER (BILL_ID)
+/
+CREATE OR REPLACE TRIGGER  Bill_Detail_Auto_SNO
+Before Insert On Vendor_Bill_Detail Referencing New As New
+Old As Old For Each Row
+Begin
+     :New.Bill_SNO := LIB.Get_New_SNO('Vendor_Bill_Detail','Bill_SNO','Where Bill_ID =  '''||:New.Bill_ID||'''');
+End
+/
+CREATE OR REPLACE TRIGGER  Bill_Detail_Cancel
+Before Update On Vendor_Bill_Detail
+For Each Row
+Declare
+    Field_Required Exception;
+BEGIN
+  IF :OLD.Cancel_YN = 'Y' THEN
+     Raise Field_Required;
+  End if;
+Exception
+     When Field_Required Then
+      RAISE_APPLICATION_ERROR (-20999,'Cancel Record not Updated');
+     When others then
+          Raise_application_error (-20999, 'Exception: ' || sqlerrm);
+END
+/
+CREATE OR REPLACE TRIGGER  Bill_Detail_Log Before Insert
+or Update or Delete On Vendor_Bill_Detail Referencing New As New
+Old As Old For Each Row
+Declare
+  vActivity_On VARCHAR2(30) := 'Vendor_Bill_Detail';
+  cActivity_Type CHAR(1);
+  vReference_No VARCHAR2(19);
+BEGIN
+  IF INSERTING THEN
+    cActivity_Type := 'I';
+    vReference_No  := :NEW.Bill_No;
+ ELSIF UPDATING THEN
+    IF :NEW.Cancel_YN = 'Y' THEN
+      cActivity_Type := 'C';
+    ELSE
+      cActivity_Type := 'U';
+    END IF;
+    vReference_No := :NEW.Bill_No;
+  ELSIF DELETING THEN
+    cActivity_Type := 'D';
+    vReference_No := :OLD.Bill_No;
+  END IF;
+  -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+END
+/
+CREATE OR REPLACE TRIGGER  Bill_Detail_Mandatory Before Insert
+or Update On Vendor_Bill_Detail Referencing New As New
+Old As Old For Each Row
+Declare
+    Field_Required Exception;
+Begin
+     If :New.Bill_No   is Null or
+        :New.Amount    is Null Then
+        Raise Field_Required;
+     End if;
+Exception
+     When Field_Required Then
+          Raise_Application_Error(-20999,'Mandatory Information Must Be Provided.....');
+     When others then
+          Raise_application_error (-20999, 'Exception: ' ||sqlerrm);
+End
+/
+CREATE OR REPLACE TRIGGER  Bill_Detail_MD_Date Before
+Update On Vendor_Bill_Detail Referencing New As New
+Old As Old For Each Row
+Begin
+      :New.Date_Modified:=Sysdate;
+      :New.Modified_On  :=User;
+      :New.Machine_Modified_Name := UserEnv('Terminal');
+End
+/
+CREATE OR REPLACE TRIGGER VB_details_FTABLES
+AFTER INSERT ON VENDOR_BILL_DETAIL
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+Declare
+v_date date;
+V_Remarks varchar2(100);
+begin
+select BILL_DATE,Remarks into v_date,V_Remarks from
+vendor_bill_header
+where
+bill_no = :NEW.bill_no;
+DECLARE
+l_SNO NUMBER;
+BEGIN
+    IF INSERTING OR UPDATING THEN
+     DELETE FROM FINANCE_TABLES
+      WHERE V_No    = :NEW.BILL_ID
+      AND V_NO_NEW  = :NEW.BILL_NO
+      AND RTRIM(Table_Flag) = 'VB';
+        INSERT INTO FINANCE_TABLES VALUES (:NEW.BILL_ID,
+                                           :NEW.BILL_NO,
+                                           0,
+                                           v_date,
+                                           :NEW.Account_Code,
+                                           NVL(:New.AMOUNT,0),
+                                           0,
+                                           'VB',
+                                           NULL,
+                                           V_REMARKS,
+                                           :NEW.Cancel_YN,
+                                           :NEW.Created_on,
+                                           :NEW.Date_Created,
+                                           :NEW.Modified_on,
+                                           :NEW.Date_Modified,
+          :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+       :NEW.ROUTE_SNO);
+End if;
+end;
+END
+/
+CREATE OR REPLACE TRIGGER  VB_Detail_Activity
+after Insert or Update or Delete on
+Vendor_Bill_Detail Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+    If Inserting Then
+    Insert into VB_Details_Activity
+     (VB_Activity_Type,Bill_ID,Bill_No,Bill_SNO,Document_No,Amount,Cancel_YN,Bill_Invoice_No,Bill_Invoice_Date)
+     Values
+     (l_Insert,:New.Bill_ID,:New.Bill_No,:New.Bill_SNO,:New.Document_No,:New.Amount,:New.Cancel_YN,
+      :New.Bill_Invoice_No,:New.Bill_Invoice_Date);
+   Elsif Updating Then
+     Insert into VB_Details_Activity
+     (VB_Activity_Type,Bill_ID,Bill_No,Bill_SNO,Document_No,Amount,Cancel_YN,Bill_Invoice_No,Bill_Invoice_Date)
+     Values
+     (l_Update,:Old.Bill_ID,:Old.Bill_No,:Old.Bill_SNO,:Old.Document_No,:Old.Amount,:Old.Cancel_YN,
+      :Old.Bill_Invoice_No,:Old.Bill_Invoice_Date);
+   Elsif Deleting Then
+     Insert into VB_Details_Activity
+     (VB_Activity_Type,Bill_ID,Bill_No,Bill_SNO,Document_No,Amount,Cancel_YN,Bill_Invoice_No,Bill_Invoice_Date)
+     Values
+     (l_Delete,:Old.Bill_ID,:Old.Bill_No,:Old.Bill_SNO,:Old.Document_No,:Old.Amount,:Old.Cancel_YN,
+      :Old.Bill_Invoice_No,:Old.Bill_Invoice_Date);
+   End if;
+Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE OR REPLACE TRIGGER  VEN_BILL_DE_VALIDATION
+BEFORE INSERT OR UPDATE ON VENDOR_BILL_DETAIL
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.BILL_NO <> :OLD.BILL_NO OR
+     :NEW.AMOUNT <> :OLD.AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE TABLE PV_HEADER ( 
+  PV_NO             NUMBER        NOT NULL, 
+  PV_NO_NEW         VARCHAR2 (12)  NOT NULL, 
+  PV_DATE           DATE          NOT NULL, 
+  PV_TYPE           CHAR (1)      NOT NULL, 
+  BANK_CASH         CHAR (1)      NOT NULL, 
+  LOC_ID            CHAR (2)      DEFAULT 'KH' NOT NULL, 
+  ACCOUNT_CODE      CHAR (19)     NOT NULL, 
+  CHECK_NO          VARCHAR2 (20), 
+  CHECK_DATE        DATE, 
+  AMOUNT            NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  DESCRIPTION       VARCHAR2 (500), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  TRIP_CODE         CHAR (5), 
+  SERIAL_NUMBER     NUMBER, 
+  ROUTE_SNO         NUMBER, 
+  CONSTRAINT UK_PV_NO_NEW_JVH UNIQUE (PV_NO_NEW),     
+  CONSTRAINT PK_PV_HEADER PRIMARY KEY ( PV_NO ) 
+    )
+/
+ALTER TABLE PV_HEADER ADD  CONSTRAINT FK_ACCOUNT_CODE_PVH
+FOREIGN KEY (ACCOUNT_CODE) REFERENCES CHART_OF_ACCOUNT (ACCOUNT_CODE)
+/
+CREATE OR REPLACE TRIGGER  PV_Header_Activity
+after Insert or Update or Delete on
+PV_Header Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+
+    If Inserting Then
+      Insert into PV_Header_Activity
+      (PV_Activity_Type,Pv_No,Pv_No_New,Pv_Date,Pv_Type,Bank_Cash,Loc_ID,Account_Code,
+       Cheque_No,Cheque_Date,Amount,Description,Cancel_YN)
+       Values
+      (l_Insert,:New.Pv_No,:New.Pv_No_New,:New.Pv_Date,:New.Pv_Type,:New.Bank_Cash,:New.Loc_ID,
+       :New.Account_Code,:New.Check_No,:New.Check_Date,:New.Amount,:New.Description,:New.Cancel_YN);
+
+    Elsif Updating Then
+      Insert into PV_Header_Activity
+      (PV_Activity_Type,Pv_No,Pv_No_New,Pv_Date,Pv_Type,Bank_Cash,Loc_ID,Account_Code,
+       Cheque_No,Cheque_Date,Amount,Description,Cancel_YN)
+       Values
+      (l_Update,:Old.Pv_No,:Old.Pv_No_New,:Old.Pv_Date,:Old.Pv_Type,:Old.Bank_Cash,:Old.Loc_ID,
+       :Old.Account_Code,:Old.Check_No,:Old.Check_Date,:Old.Amount,:Old.Description,:Old.Cancel_YN);
+    Elsif Deleting Then
+     Insert into PV_Header_Activity
+      (PV_Activity_Type,Pv_No,Pv_No_New,Pv_Date,Pv_Type,Bank_Cash,Loc_ID,Account_Code,
+       Cheque_No,Cheque_Date,Amount,Description,Cancel_YN)
+       Values
+      (l_Delete,:Old.Pv_No,:Old.Pv_No_New,:Old.Pv_Date,:Old.Pv_Type,:Old.Bank_Cash,:Old.Loc_ID,
+       :Old.Account_Code,:Old.Check_No,:Old.Check_Date,:Old.Amount,:Old.Description,:Old.Cancel_YN);
+    End if;
+ Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_Cancel
+before update on PV_HEADER
+for each row
+Begin
+    If :Old.Cancel_YN = 'Y' then
+        Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_FTABLES
+AFTER INSERT OR DELETE OR UPDATE ON PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+Begin
+    If Inserting or Updating Then
+           delete from FINANCE_TABLES
+           where V_No     =  :Old.PV_No
+           AND V_No_NEW =  :Old.PV_No_NEW
+           And V_Date =  :Old.PV_Date
+           and V_SNO = 0
+           and rtrim(Table_Flag) = 'PVH' ;
+        Insert into Finance_Tables Values (:New.PV_No,
+                                           :New.PV_No_NEW,
+                                            0,
+                                           :New.PV_Date,
+                                           :New.Account_Code,
+                                            Null,
+                                           nvl(:New.Amount,0),
+                                           'PVH',
+                                            NULL,
+                                           :New.DESCRIPTION,
+                                           :New.Cancel_YN,
+                                           :New.Created_By,
+                                           :New.Date_Created,
+                                           :New.Modified_By,
+                                           :New.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+ :NEW.ROUTE_SNO);
+    End If;
+    If Deleting Then
+      Delete from Finance_Tables
+      where V_No = :Old.PV_No
+      AND V_No_NEW = :Old.PV_No_NEW
+      And V_Date =  :Old.PV_Date
+      and V_SNO = 0
+      And rtrim(Table_Flag) = 'PVH';
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_Genrate
+before Insert on PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       NUMBER;
+Begin
+    Select  nvl(max(PV_NO),0)+1
+    Into :New.PV_NO
+    from PV_HEADER;
+End
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_Genrate_N
+before Insert on PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       Varchar2(12);
+Begin
+    Select  ltrim(to_char(nvl(max(substr(PV_NO_NEW ,9,4)),0)+1,'0000'))
+    Into temp_no
+    from PV_HEADER
+    Where substr(PV_NO_NEW, 1, 8) = TO_CHAR(:NEW.PV_DATE,'YYYYMMDD');
+    :New.PV_NO_NEW                := TO_CHAR(:NEW.PV_DATE,'YYYYMMDD')||Temp_no;
+End
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_LOG
+after INSERT OR DELETE OR UPDATE ON PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'PV_HEADER';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+  if Inserting then
+    cActivity_Type := 'I';
+    vReference_No := :New.PV_NO;
+  elsif Updating then
+    if :New.Cancel_YN = 'Y' then
+      cActivity_Type := 'C';
+    else
+      cActivity_Type := 'U';
+    end if;
+    vReference_No := :New.PV_NO;
+  elsif Deleting then
+    cActivity_Type := 'D';
+    vReference_No := :OLD.PV_NO;
+  end if;
+    -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+End;
+/
+
+CREATE OR REPLACE TRIGGER  PV_HEADER_Mandatory
+Before Insert or Update on PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.PV_DATE is null Or
+    :new.PV_TYPE is null Or
+    :new.ACCOUNT_CODE is null Or
+    :new.Cancel_YN is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_User_Date
+Before Insert or Update on PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+  If Inserting then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_created, :New.created_by, :New.machine_created
+    from     Dual;
+  End If;
+  If Updating then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_modified, :New.modified_by, :New.machine_modified
+    from Dual;
+  End If;
+End
+/
+CREATE OR REPLACE TRIGGER  PV_HEADER_VALIDATION
+BEFORE INSERT OR UPDATE ON PV_HEADER
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.PV_NO_NEW <> :OLD.PV_NO_NEW OR
+     :NEW.PV_DATE <> :OLD.PV_DATE OR
+     :NEW.PV_TYPE <> :OLD.PV_TYPE OR
+     :NEW.BANK_CASH <> :OLD.BANK_CASH OR
+     :NEW.LOC_ID <> :OLD.LOC_ID OR
+     :NEW.ACCOUNT_CODE <> :OLD.ACCOUNT_CODE OR
+     :NEW.AMOUNT <> :OLD.AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE TABLE PV_DETAILS ( 
+  SNO               NUMBER        NOT NULL, 
+  PV_NO             NUMBER        NOT NULL, 
+  PV_NO_NEW         VARCHAR2 (12)  NOT NULL, 
+  PV_DATE           DATE          NOT NULL, 
+  PV_TYPE           CHAR (1)      NOT NULL, 
+  LOC_ID            CHAR (2)      DEFAULT 'KH' NOT NULL, 
+  ACCOUNT_CODE      CHAR (19)     NOT NULL, 
+  DEBIT_AMOUNT      NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  CREDIT_AMOUNT     NUMBER (15,2) DEFAULT 0 NOT NULL, 
+  REF_DOC_NO        VARCHAR2 (14), 
+  DESCRIPTION       VARCHAR2 (200), 
+  CANCEL_YN         CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY        VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED      DATE          DEFAULT SYSDATE NOT NULL, 
+  MACHINE_CREATED   VARCHAR2 (30)  DEFAULT UserEnv('Terminal') NOT NULL, 
+  MODIFIED_BY       VARCHAR2 (30), 
+  DATE_MODIFIED     DATE, 
+  MACHINE_MODIFIED  VARCHAR2 (30), 
+  BILL_INVOICE_NO   VARCHAR2 (20), 
+  TRIP_CODE         CHAR (5), 
+  SERIAL_NUMBER     NUMBER, 
+  ROUTE_SNO         NUMBER, 
+  CONSTRAINT PK_PV_DETAILS PRIMARY KEY ( SNO, PV_NO ) 
+)
+/
+ALTER TABLE PV_DETAILS ADD  CONSTRAINT FK_ACCOUNT_CODE_PVD  FOREIGN KEY (ACCOUNT_CODE) REFERENCES CHART_OF_ACCOUNT (ACCOUNT_CODE)
+/
+ALTER TABLE PV_DETAILS ADD  CONSTRAINT FK_PV_NO_NEW_PVD FOREIGN KEY (PV_NO_NEW)  REFERENCES PV_HEADER (PV_NO_NEW)
+/
+ALTER TABLE PV_DETAILS ADD  CONSTRAINT FK_PV_NO_PVD FOREIGN KEY (PV_NO) REFERENCES PV_HEADER (PV_NO)
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_Cancel
+before update on PV_DETAILS
+for each row
+Begin
+    If :Old.Cancel_YN = 'Y' then
+        Raise_Application_Error (-20999,'Cancel Record, You not Update the Record');
+    End if;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_DOC_VALIDATION
+Before Insert or Update on PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+IF :New.PV_Type = 'V' THEN
+ IF :New.Ref_Doc_NO  IS NULL THEN
+     Raise_Application_Error (-20999,'Cannot Insert Null Ref Code');
+ End IF;
+END IF;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_FTABLES
+AFTER INSERT OR DELETE OR UPDATE ON PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+BEGIN
+    IF INSERTING OR UPDATING THEN
+      DELETE FROM FINANCE_TABLES
+      WHERE V_No   = :OLD.PV_No
+      AND V_No_NEW = :OLD.PV_No_NEW
+      AND V_DATE   = :OLD.PV_DATE
+      AND V_SNO    = :OLD.SNO
+      AND RTRIM(Table_Flag) = 'PVD' ;
+        INSERT INTO FINANCE_TABLES VALUES (:NEW.PV_No,
+                                           :NEW.PV_No_NEW,
+                                           :NEW.SNO,
+                                           :NEW.PV_DATE,
+                                           :NEW.Account_Code,
+                                           :NEW.DEBIT_AMOUNT,
+                                           :NEW.CREDIT_Amount,
+                                           'PVD',
+                                           :NEW.REF_DOC_NO,
+                                           :NEW.DESCRIPTION,
+                                           :NEW.Cancel_YN,
+                                           :NEW.Created_By,
+                                           :NEW.Date_Created,
+                                           :NEW.Modified_By,
+                                           :NEW.Date_Modified,
+        :NEW.TRIP_CODE,
+        :NEW.SERIAL_NUMBER,
+        :NEW.ROUTE_SNO);
+    END IF;
+    IF DELETING THEN
+      DELETE FROM FINANCE_TABLES
+      WHERE V_No = :OLD.PV_No
+      AND V_No_NEW = :OLD.PV_No_NEW
+      AND V_DATE  = :OLD.PV_DATE
+      AND V_SNO   = :OLD.SNO
+      AND RTRIM(Table_Flag) = 'PVD'  ;
+    END IF;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_Genrate
+before Insert on PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for each row
+Declare
+    Temp_No       Varchar2(15);
+    Serial_no     Number;
+Begin
+    Select  nvl(max(SNO),0)+1
+    Into Serial_no
+    from PV_DETAILS
+    Where PV_NO = :New.PV_NO;
+    :New.SNO     := Serial_no;
+End
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_LOG
+after INSERT OR DELETE OR UPDATE ON PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+declare
+  vActivity_On varchar2(30) := 'PV_DETAILS';
+  cActivity_Type char(1);
+  vReference_No varchar2(19);
+begin
+  if Inserting then
+    cActivity_Type := 'I';
+    vReference_No := :New.SNO;
+  elsif Updating then
+    if :New.Cancel_YN = 'Y' then
+      cActivity_Type := 'C';
+    else
+      cActivity_Type := 'U';
+    end if;
+    vReference_No := :New.SNO;
+  elsif Deleting then
+    cActivity_Type := 'D';
+    vReference_No := :OLD.SNO;
+  end if;
+    -- Log_Activity (vActivity_On, cActivity_Type, vReference_No);
+End
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_Mandatory
+Before Insert or Update on PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+ If :new.PV_NO     is null Or
+    :new.PV_NO_NEW is null Or
+    :new.PV_DATE   is null Or
+    :new.PV_TYPE   is null Or
+    :new.ACCOUNT_CODE is null Or
+    :new.Cancel_YN is null then
+     Raise_Application_Error (-20999,'Mandatory information must be provided in order to save the record');
+ end if;
+END
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_User_Date
+Before Insert or Update on PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+for Each Row
+Begin
+  If Inserting then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_created, :New.created_by, :New.machine_created
+    from     Dual;
+  End If;
+  If Updating then
+    Select SysDate, User, UserEnv('Terminal')
+    into :New.Date_modified, :New.modified_by, :New.machine_modified
+    from Dual;
+  End If;
+End
+/
+CREATE OR REPLACE TRIGGER  PV_DETAILS_VALIDATION
+BEFORE INSERT OR UPDATE ON PV_DETAILS
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.SNO <> :OLD.SNO OR
+     :NEW.PV_NO_NEW <> :OLD.PV_NO_NEW OR
+     :NEW.PV_DATE <> :OLD.PV_DATE OR
+     :NEW.PV_TYPE <> :OLD.PV_TYPE OR
+     :NEW.LOC_ID <> :OLD.LOC_ID OR
+     :NEW.ACCOUNT_CODE <> :OLD.ACCOUNT_CODE OR
+     :NEW.DEBIT_AMOUNT <> :OLD.DEBIT_AMOUNT OR
+     :NEW.CREDIT_AMOUNT <> :OLD.CREDIT_AMOUNT THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+CREATE OR REPLACE TRIGGER  PV_Detail_Activity
+after Insert or Update or Delete on
+PV_Details Referencing New as New Old as Old
+For Each Row
+Declare
+     l_Activity_Error Exception;
+     l_Insert         char(1):='I';
+     l_Update         char(1):='U';
+     l_Delete         char(1):='D';
+Begin
+    If Inserting Then
+     Insert into PV_Details_Activity
+       (PV_Activity_Type,SNO,Pv_No,Pv_No_New,Pv_Date,Pv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN,Bill_Invoice_No)
+        Values
+        (l_Insert,:New.SNO,:New.Pv_No,:New.Pv_No_New,:New.Pv_Date,:New.Pv_Type,:New.Loc_ID,
+         :New.Account_Code,:New.Debit_Amount,:NEw.Credit_Amount,:New.Ref_Doc_No,
+         :New.Description,:New.Cancel_YN,:New.Bill_Invoice_No);
+     Elsif Updating Then
+     Insert into PV_Details_Activity
+       (PV_Activity_Type,SNO,Pv_No,Pv_No_New,Pv_Date,Pv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN,Bill_Invoice_No)
+        Values
+        (l_Update,:Old.SNO,:Old.Pv_No,:Old.Pv_No_New,:Old.Pv_Date,:Old.Pv_Type,:Old.Loc_ID,
+         :Old.Account_Code,:Old.Debit_Amount,:Old.Credit_Amount,:Old.Ref_Doc_No,
+         :Old.Description,:Old.Cancel_YN,:Old.Bill_Invoice_No);
+     Elsif Deleting Then
+     Insert into PV_Details_Activity
+       (PV_Activity_Type,SNO,Pv_No,Pv_No_New,Pv_Date,Pv_Type,Loc_ID,Account_Code,Debit_Amount,Credit_Amount,
+        Ref_Doc_No,Description,Cancel_YN,Bill_Invoice_No)
+        Values
+        (l_Delete,:Old.SNO,:Old.Pv_No,:Old.Pv_No_New,:Old.Pv_Date,:Old.Pv_Type,:Old.Loc_ID,
+         :Old.Account_Code,:Old.Debit_Amount,:Old.Credit_Amount,:Old.Ref_Doc_No,
+         :Old.Description,:Old.Cancel_YN,:Old.Bill_Invoice_No);
+    End if;
+Exception
+ When Others Then
+    Raise_Application_Error (-20999, 'Exception: ' || SQLERRM);
+End
+/
+CREATE TABLE FINANCE_TABLES ( 
+  V_NO           NUMBER        NOT NULL, 
+  V_NO_NEW       VARCHAR2 (12)  NOT NULL, 
+  V_SNO          NUMBER (3)    NOT NULL, 
+  V_DATE         DATE          NOT NULL, 
+  ACCOUNT_CODE   CHAR (19)     NOT NULL, 
+  DEBIT_AMT      NUMBER (15,2), 
+  CREDIT_AMT     NUMBER (15,2), 
+  TABLE_FLAG     VARCHAR2 (10)  NOT NULL, 
+  REF_DOC_NO     VARCHAR2 (12), 
+  REMARKS        VARCHAR2 (200), 
+  CANCEL_YN      CHAR (1)      DEFAULT 'N' NOT NULL, 
+  CREATED_BY     VARCHAR2 (30)  DEFAULT USER NOT NULL, 
+  DATE_CREATED   DATE          DEFAULT SYSDATE NOT NULL, 
+  MODIFIED_BY    VARCHAR2 (30), 
+  DATE_MODIFIED  DATE, 
+  TRIP_CODE      CHAR (5), 
+  SERIAL_NUMBER  NUMBER, 
+  ROUTE_SNO      NUMBER, 
+  CONSTRAINT PK_FINANCE_TABLES PRIMARY KEY ( V_NO, V_NO_NEW, ACCOUNT_CODE, TABLE_FLAG, V_SNO ) 
+ )
+/
+CREATE OR REPLACE TRIGGER  FIN_TABLE_VALIDATION
+BEFORE INSERT OR UPDATE ON FINANCE_TABLES
+REFERENCING NEW AS NEW OLD AS OLD
+FOR EACH ROW
+DECLARE
+Field_Validation EXCEPTION;
+BEGIN
+     IF NOT USER LIKE('ML%')THEN
+     IF :NEW.V_DATE <> :OLD.V_DATE THEN
+     RAISE Field_Validation;
+     END IF;
+     END IF;
+EXCEPTION
+   WHEN Field_Validation THEN
+        RAISE_APPLICATION_ERROR (-20999, 'You Have No Rights to change the date....');
+END
+/
+
